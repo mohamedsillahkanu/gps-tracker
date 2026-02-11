@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Movement Tracker — ICF-SL GPS Field Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <style>
+        :root {
+            --navy:#0056a8;--navy-mid:#003d7a;--navy-deep:#002952;--navy-light:#0068cc;
+            --gold:#ffc107;--gold-light:#ffdd57;--gold-pale:#fff8e1;--gold-dark:#e6a800;
+            --green:#28a745;--green-dark:#1e7e34;--red:#dc3545;--orange:#f59e0b;
+            --bg:#f0f4f8;--card:#ffffff;--text:#0f172a;--text-mid:#475569;--text-light:#94a3b8;--border:#dfe3e8;
+        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+        /* HEADER */
+        .top-bar{background:var(--navy);padding:14px 20px;position:fixed;top:0;left:0;right:0;z-index:400;box-shadow:0 4px 20px rgba(0,0,0,0.25)}
+        .top-bar-inner{max-width:600px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+        .brand{display:flex;align-items:center;gap:12px}
+        .brand-badge{width:40px;height:40px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(212,160,23,0.3)}
+        .brand-badge svg{width:22px;height:22px;stroke:var(--navy);fill:none;stroke-width:2.5}
+        .brand-text h1{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold);letter-spacing:3px;line-height:1}
+        .brand-text p{font-size:9px;color:rgba(255,255,255,0.5);letter-spacing:2px;font-weight:600;text-transform:uppercase}
+        .tracking-indicator{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:5px 12px;border-radius:20px}
+        .tracking-indicator.idle{color:rgba(255,255,255,0.4)} .tracking-indicator.active{color:var(--gold);background:rgba(255,193,7,0.15)}
+        .tracking-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.3)}
+        .tracking-indicator.active .tracking-dot{background:var(--green);box-shadow:0 0 8px rgba(40,167,69,0.6);animation:pulse-gps 1.5s infinite}
+        @keyframes pulse-gps{0%,100%{box-shadow:0 0 8px rgba(40,167,69,0.6);transform:scale(1)}50%{box-shadow:0 0 20px rgba(40,167,69,0.9);transform:scale(1.3)}}
+
+        /* NAV */
+        .nav-bar{position:fixed;bottom:0;left:0;right:0;z-index:400;background:var(--navy);border-top:2px solid var(--navy-mid);padding:4px 8px calc(4px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(0,0,0,0.15)}
+        .nav-inner{max-width:600px;margin:0 auto;display:flex;gap:2px}
+        .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;background:none;border:none;cursor:pointer;border-radius:8px;transition:all 0.2s}
+        .nav-btn svg{width:20px;height:20px;stroke:rgba(255,255,255,0.35);fill:none;stroke-width:2;transition:all 0.2s}
+        .nav-btn span{font-size:8px;font-weight:700;letter-spacing:0.5px;color:rgba(255,255,255,0.35);text-transform:uppercase;transition:all 0.2s}
+        .nav-btn.active{background:rgba(255,193,7,0.12)} .nav-btn.active svg{stroke:var(--gold)} .nav-btn.active span{color:var(--gold)}
+
+        /* MAIN */
+        .main{max-width:600px;margin:0 auto;padding:68px 0 72px;min-height:100vh}
+        .tab-panel{display:none} .tab-panel.active{display:block}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+        /* MAP */
+        #mapContainer{width:100%;height:calc(100vh - 140px);background:var(--bg);position:relative}
+        #map{width:100%;height:100%;z-index:1}
+        .map-overlay-controls{position:absolute;top:12px;left:12px;right:12px;z-index:300;display:flex;gap:8px;pointer-events:none}
+        .map-overlay-controls>*{pointer-events:auto}
+        .map-user-select{flex:1;padding:10px 14px;background:rgba(255,255,255,0.95);backdrop-filter:blur(12px);border:2px solid var(--border);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:13px;font-weight:600;outline:none;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+        .map-chip-btn{padding:10px 14px;background:rgba(255,255,255,0.95);backdrop-filter:blur(12px);border:2px solid var(--border);border-radius:10px;color:var(--text-mid);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all 0.2s}
+        .map-chip-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+        .map-chip-btn:hover{border-color:var(--navy);color:var(--navy)} .map-chip-btn.active{border-color:var(--navy);color:#fff;background:var(--navy)}
+        .map-stats-bar{position:absolute;bottom:12px;left:12px;right:12px;z-index:300;display:flex;gap:6px}
+        .map-stat-chip{flex:1;padding:8px 10px;background:rgba(255,255,255,0.95);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:10px;text-align:center}
+        .map-stat-chip .label{font-size:8px;font-weight:700;letter-spacing:1px;color:var(--text-light);text-transform:uppercase}
+        .map-stat-chip .value{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--navy);margin-top:1px}
+
+        /* DASHBOARD */
+        .dash-content{padding:16px}
+        .dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+        .dash-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--navy)}
+        .sync-btn{padding:8px 18px;background:var(--navy);border:none;border-radius:10px;color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all 0.2s}
+        .sync-btn:disabled{opacity:0.5;cursor:not-allowed}
+        .sync-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+        .sync-btn:hover:not(:disabled){background:var(--navy-mid)}
+        .sync-spin{animation:spin 1s linear infinite}
+        @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+        .summary-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+        .summary-card{background:var(--card);border-radius:12px;padding:14px 10px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.04);border-top:3px solid var(--navy)}
+        .summary-card .sc-val{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--navy);letter-spacing:1px}
+        .summary-card .sc-lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:var(--text-light);text-transform:uppercase;margin-top:2px}
+        .summary-card:nth-child(2){border-top-color:var(--gold)} .summary-card:nth-child(2) .sc-val{color:var(--gold-dark)}
+        .summary-card:nth-child(3){border-top-color:var(--green)} .summary-card:nth-child(3) .sc-val{color:var(--green)}
+        .summary-card:nth-child(4){border-top-color:var(--orange)} .summary-card:nth-child(4) .sc-val{color:var(--orange)}
+
+        .dash-section{background:var(--card);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:14px}
+        .dash-section-hd{padding:14px 18px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--navy-deep),var(--navy-mid))}
+        .dash-section-hd svg{width:18px;height:18px;stroke:var(--gold);fill:none;stroke-width:2;flex-shrink:0}
+        .dash-section-hd .ds-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--gold)}
+        .dash-section-hd .ds-badge{margin-left:auto;font-size:9px;background:rgba(255,193,7,0.2);color:var(--gold-light);padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:1px}
+
+        /* User movement cards */
+        .user-move-card{padding:16px 18px;border-bottom:1px solid #f1f5f9;cursor:pointer;transition:background 0.15s}
+        .user-move-card:hover{background:#f8fafc} .user-move-card:last-child{border-bottom:none}
+        .umc-top{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+        .umc-avatar{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;flex-shrink:0}
+        .umc-info{flex:1;min-width:0}
+        .umc-name{font-weight:700;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .umc-id{font-size:10px;color:var(--text-light);margin-top:1px}
+        .umc-status{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:6px}
+        .umc-status.active{background:#e8f5e9;color:var(--green)} .umc-status.idle{background:#f1f5f9;color:var(--text-light)}
+        .umc-stats{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
+        .umc-stat{text-align:center;padding:6px;background:#f8fafc;border-radius:8px;border:1px solid #f1f5f9}
+        .umc-stat .ms-val{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--navy);letter-spacing:0.5px}
+        .umc-stat .ms-lbl{font-size:7px;font-weight:700;letter-spacing:0.5px;color:var(--text-light);text-transform:uppercase;margin-top:1px}
+        .umc-trail{height:4px;background:#f1f5f9;border-radius:2px;margin-top:8px;overflow:hidden;position:relative}
+        .umc-trail-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--navy),var(--gold))}
+
+        /* TRACK */
+        .track-content{padding:16px}
+        .track-section{background:var(--card);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:14px}
+        .track-section-header{padding:14px 18px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--gold-pale),#fef3c7);border-bottom:2px solid var(--gold)}
+        .track-section-header svg{width:20px;height:20px;stroke:var(--gold-dark);fill:none;stroke-width:2;flex-shrink:0}
+        .track-section-title{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--gold-dark)}
+        .track-section-header.blue-hd{background:linear-gradient(135deg,#e8f0fe,#dbeafe);border-bottom-color:var(--navy)}
+        .track-section-header.blue-hd svg{stroke:var(--navy)} .track-section-header.blue-hd .track-section-title{color:var(--navy)}
+        .track-section-body{padding:18px}
+        .active-user-card{background:var(--card);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:14px;display:none}
+        .active-user-card.show{display:block;animation:fadeUp 0.3s ease}
+        .active-card-top{background:linear-gradient(135deg,var(--navy),var(--navy-mid));padding:20px;position:relative}
+        .active-card-top::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:14px;background:var(--card);border-radius:14px 14px 0 0}
+        .active-user-top{display:flex;align-items:center;justify-content:space-between}
+        .active-user-info{display:flex;align-items:center;gap:12px}
+        .active-avatar{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--navy);letter-spacing:1px;box-shadow:0 4px 12px rgba(212,160,23,0.3)}
+        .active-user-name{font-family:'Bebas Neue',sans-serif;font-size:20px;color:#fff;letter-spacing:2px}
+        .active-user-id{font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;margin-top:1px}
+        .stop-track-btn{padding:8px 16px;background:rgba(220,53,69,0.2);border:1px solid rgba(220,53,69,0.4);border-radius:8px;color:#fca5a5;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;cursor:pointer}
+        .active-card-body{padding:6px 20px 20px}
+        .active-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+        .active-stat{text-align:center;padding:10px 8px;background:#f8fafc;border:1px solid var(--border);border-radius:10px}
+        .active-stat .val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--navy);letter-spacing:1px}
+        .active-stat .lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:var(--text-light);text-transform:uppercase;margin-top:1px}
+        .scan-overlay-track{text-align:center;padding:20px}
+        .scan-overlay-track svg{width:48px;height:48px;margin-bottom:10px}
+        .scan-overlay-track p{font-size:13px;color:var(--text-mid);font-weight:500;margin-bottom:16px}
+        .track-action-btn{padding:14px 28px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:8px}
+        .track-action-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2}
+        .track-action-btn.gold-btn{background:linear-gradient(135deg,var(--gold),var(--gold-dark));color:var(--navy);box-shadow:0 4px 16px rgba(212,160,23,0.3)}
+        .track-action-btn:hover{transform:translateY(-2px)}
+        .or-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text-light);font-size:11px;font-weight:600;letter-spacing:1px}
+        .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+        .manual-input-row{display:flex;gap:8px}
+        .manual-input{flex:1;padding:12px 14px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:13px;outline:none}
+        .manual-input:focus{border-color:var(--gold)}
+        .manual-go-btn{padding:12px 20px;background:var(--navy);border:none;border-radius:10px;color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;cursor:pointer}
+        .setting-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+        .setting-row:last-child{border-bottom:none}
+        .setting-label{font-size:13px;font-weight:600;color:var(--text)} .setting-desc{font-size:10px;color:var(--text-light);margin-top:2px}
+        .setting-value{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--navy);background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:4px 12px;min-width:60px;text-align:center}
+        #reader-track{width:100%;max-width:280px;margin:0 auto;border-radius:12px;overflow:hidden} #reader-track video{border-radius:12px !important} #reader-track img{display:none !important} #reader-track{border:none !important}
+
+        /* USERS */
+        .users-content{padding:16px}
+        .user-list-card{background:var(--card);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06);overflow:hidden}
+        .user-list-header{padding:14px 18px;background:linear-gradient(135deg,var(--navy-deep),var(--navy-mid));display:flex;align-items:center;justify-content:space-between}
+        .user-list-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--gold)}
+        .user-list-badge{font-size:10px;background:rgba(255,193,7,0.2);color:var(--gold-light);padding:3px 10px;border-radius:8px;font-weight:700;letter-spacing:1px}
+        .user-search{padding:12px 18px;border-bottom:1px solid var(--border)}
+        .user-search input{width:100%;padding:10px 14px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:13px;outline:none}
+        .user-search input:focus{border-color:var(--gold)}
+        .user-items{max-height:500px;overflow-y:auto}
+        .user-item{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #f1f5f9;transition:background 0.15s;cursor:pointer}
+        .user-item:hover{background:#f8fafc} .user-item:last-child{border-bottom:none}
+        .user-avatar{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;flex-shrink:0}
+        .user-info{flex:1;min-width:0}
+        .user-name{font-weight:600;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .user-meta{font-size:10px;color:var(--text-light);margin-top:2px;display:flex;gap:8px}
+        .user-right{text-align:right;flex-shrink:0}
+        .user-points{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--navy);letter-spacing:1px}
+        .user-points-label{font-size:8px;font-weight:700;color:var(--text-light);letter-spacing:1px}
+        .empty-state{padding:40px 20px;text-align:center;color:var(--text-light);font-size:13px}
+        .empty-state svg{width:48px;height:48px;stroke:var(--text-light);fill:none;stroke-width:1.5;margin-bottom:12px;opacity:0.5}
+        .export-btn{display:block;width:100%;margin-top:14px;padding:14px;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--navy);font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;cursor:pointer;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s}
+        .export-btn:hover{background:var(--gold-pale);border-color:var(--gold)}
+
+        /* NOTIF */
+        .notif{position:fixed;top:68px;left:50%;transform:translateX(-50%) translateY(-100px);padding:12px 24px;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;box-shadow:0 8px 32px rgba(0,0,0,0.2);z-index:9999;transition:transform 0.3s;white-space:nowrap}
+        .notif.show{transform:translateX(-50%) translateY(0)}
+        .notif.success{background:var(--green);color:#fff} .notif.error{background:var(--red);color:#fff} .notif.info{background:var(--navy);color:var(--gold)}
+
+        .leaflet-popup-content-wrapper{border-radius:12px !important;box-shadow:0 8px 32px rgba(0,0,0,0.15) !important}
+        .popup-content{font-family:'Outfit',sans-serif;padding:2px 0}
+        .popup-content .name{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;color:var(--navy)}
+        .popup-content .detail{font-size:11px;color:var(--text-mid);margin-top:2px}
+        @media(max-width:400px){.summary-row{grid-template-columns:1fr 1fr} .umc-stats{grid-template-columns:1fr 1fr} .map-stats-bar{flex-wrap:wrap}}
+    </style>
+</head>
+<body>
+    <div class="top-bar"><div class="top-bar-inner">
+        <div class="brand">
+            <div class="brand-badge"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg></div>
+            <div class="brand-text"><h1>MOVEMENT TRACKER</h1><p>ICF-SL &bull; GPS Field Monitor</p></div>
+        </div>
+        <div class="tracking-indicator idle" id="trackingIndicator"><div class="tracking-dot"></div><span id="trackingLabel">IDLE</span></div>
+    </div></div>
+
+    <div class="main">
+        <!-- DASHBOARD TAB -->
+        <div class="tab-panel active" id="panel-dash"><div class="dash-content">
+            <div class="dash-header">
+                <div class="dash-title">FIELD DASHBOARD</div>
+                <button class="sync-btn" id="syncBtn" onclick="syncToSheets()"><svg id="syncIcon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>SYNC TO SHEETS</button>
+            </div>
+            <div class="summary-row">
+                <div class="summary-card"><div class="sc-val" id="sumUsers">0</div><div class="sc-lbl">Users</div></div>
+                <div class="summary-card"><div class="sc-val" id="sumSessions">0</div><div class="sc-lbl">Sessions</div></div>
+                <div class="summary-card"><div class="sc-val" id="sumPoints">0</div><div class="sc-lbl">GPS Points</div></div>
+                <div class="summary-card"><div class="sc-val" id="sumDist">0</div><div class="sc-lbl">KM Total</div></div>
+            </div>
+            <div class="dash-section">
+                <div class="dash-section-hd">
+                    <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                    <div class="ds-title">USER MOVEMENTS</div>
+                    <div class="ds-badge" id="dashSyncStatus">LOCAL DATA</div>
+                </div>
+                <div id="dashUserCards"></div>
+            </div>
+        </div></div>
+
+        <!-- MAP TAB -->
+        <div class="tab-panel" id="panel-map">
+            <div id="mapContainer">
+                <div id="map"></div>
+                <div class="map-overlay-controls">
+                    <select class="map-user-select" id="mapUserSelect" onchange="renderMapTrails()"><option value="all">All Users</option></select>
+                    <button class="map-chip-btn" id="liveBtn" onclick="toggleLiveFollow()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>LIVE</button>
+                </div>
+                <div class="map-stats-bar">
+                    <div class="map-stat-chip"><div class="label">Points</div><div class="value" id="mapPoints">0</div></div>
+                    <div class="map-stat-chip"><div class="label">Distance</div><div class="value" id="mapDistance">0 km</div></div>
+                    <div class="map-stat-chip"><div class="label">Duration</div><div class="value" id="mapDuration">0h 0m</div></div>
+                    <div class="map-stat-chip"><div class="label">Users</div><div class="value" id="mapUsers">0</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TRACK TAB -->
+        <div class="tab-panel" id="panel-track"><div class="track-content">
+            <div class="active-user-card" id="activeUserCard">
+                <div class="active-card-top"><div class="active-user-top">
+                    <div class="active-user-info">
+                        <div class="active-avatar" id="activeAvatar">—</div>
+                        <div><div class="active-user-name" id="activeName">—</div><div class="active-user-id" id="activeId">—</div></div>
+                    </div>
+                    <button class="stop-track-btn" onclick="stopTracking()">STOP</button>
+                </div></div>
+                <div class="active-card-body"><div class="active-stats">
+                    <div class="active-stat"><div class="val" id="livePoints">0</div><div class="lbl">Points</div></div>
+                    <div class="active-stat"><div class="val" id="liveDist">0 m</div><div class="lbl">Distance</div></div>
+                    <div class="active-stat"><div class="val" id="liveTime">0:00</div><div class="lbl">Duration</div></div>
+                </div></div>
+            </div>
+            <div class="track-section" id="startTrackSection">
+                <div class="track-section-header"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg><div class="track-section-title">START TRACKING</div></div>
+                <div class="track-section-body">
+                    <div class="scan-overlay-track" id="scanOverlayTrack">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="4" height="4"/></svg>
+                        <p>Scan user's ID card to begin GPS tracking</p>
+                        <button class="track-action-btn gold-btn" onclick="startScanTrack()"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>SCAN QR CODE</button>
+                    </div>
+                    <div id="reader-track" style="display:none;"></div>
+                    <div style="text-align:center;display:none;" id="stop-scan-track"><button class="track-action-btn" style="background:var(--red);color:#fff;margin-top:12px;font-size:14px;padding:10px 24px;" onclick="stopScanTrack()">STOP SCANNER</button></div>
+                    <div class="or-divider">OR ENTER MANUALLY</div>
+                    <div class="manual-input-row">
+                        <input type="text" class="manual-input" id="manualName" placeholder="Name">
+                        <input type="text" class="manual-input" id="manualCode" placeholder="ID Code">
+                        <button class="manual-go-btn" onclick="startManualTrack()">GO</button>
+                    </div>
+                </div>
+            </div>
+            <div class="track-section">
+                <div class="track-section-header blue-hd"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 010 4h-.09c-.66 0-1.25.4-1.51 1z"/></svg><div class="track-section-title">TRACKING SETTINGS</div></div>
+                <div class="track-section-body">
+                    <div class="setting-row"><div><div class="setting-label">GPS Interval</div><div class="setting-desc">Seconds between location reads</div></div><div class="setting-value" id="settingInterval">10</div></div>
+                    <div class="setting-row"><div><div class="setting-label">Min Distance</div><div class="setting-desc">Meters before recording new point</div></div><div class="setting-value" id="settingMinDist">5</div></div>
+                    <div class="setting-row"><div><div class="setting-label">Stored Points</div><div class="setting-desc">Total GPS points in local storage</div></div><div class="setting-value" id="settingTotalPts">0</div></div>
+                </div>
+            </div>
+        </div></div>
+
+        <!-- USERS TAB -->
+        <div class="tab-panel" id="panel-users"><div class="users-content">
+            <div class="user-list-card">
+                <div class="user-list-header"><div class="user-list-title">TRACKED USERS</div><div class="user-list-badge" id="userCountBadge">0 USERS</div></div>
+                <div class="user-search"><input type="text" placeholder="Search by name or ID..." id="userSearch" oninput="renderUserList()"></div>
+                <div class="user-items" id="userItems"><div class="empty-state"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg><p>No tracking data yet.</p></div></div>
+            </div>
+            <button class="export-btn" onclick="exportData()">EXPORT ALL DATA (CSV)</button>
+            <button class="export-btn" style="color:var(--red);border-color:var(--red);margin-top:8px;" onclick="clearAllData()">CLEAR ALL DATA</button>
+        </div></div>
+    </div>
+
+    <!-- BOTTOM NAV — 4 TABS -->
+    <div class="nav-bar"><div class="nav-inner">
+        <button class="nav-btn active" data-tab="dash" onclick="switchTab('dash',this)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Dashboard</span></button>
+        <button class="nav-btn" data-tab="map" onclick="switchTab('map',this)"><svg viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg><span>Map</span></button>
+        <button class="nav-btn" data-tab="track" onclick="switchTab('track',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg><span>Track</span></button>
+        <button class="nav-btn" data-tab="users" onclick="switchTab('users',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span>Users</span></button>
+    </div></div>
+
+    <div class="notif" id="notif"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+// ============================================
+// CONFIGURATION
+// ============================================
+var GPS_INTERVAL = 10;
+var MIN_DISTANCE = 5;
+var HIGH_ACCURACY = true;
+var SCRIPT_URL = '';  // Paste your Google Apps Script Web App URL here
+
+// ============================================
+// STATE
+// ============================================
+var trackingData = JSON.parse(localStorage.getItem('mt_data') || '{}');
+var activeUser = null, watchId = null, lastPoint = null, sessionStart = null;
+var sessionPoints = 0, sessionDistance = 0, liveFollow = false;
+var scanner = null, liveTimer = null, map = null, mapLayers = null, liveMarker = null;
+var TRAIL_COLORS = ['#0056a8','#28a745','#ffc107','#dc3545','#0068cc','#e6a800','#1e7e34','#f59e0b'];
+
+document.getElementById('settingInterval').textContent = GPS_INTERVAL;
+document.getElementById('settingMinDist').textContent = MIN_DISTANCE;
+
+// ============================================
+// HELPERS (formatting)
+// ============================================
+function r5(n){return Math.round(n*100000)/100000}
+function pad(n){return String(n).padStart(2,'0')}
+function fmtD(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+
+// ============================================
+// MAP — DEFERRED INIT
+// ============================================
+function initMap(){
+    if(typeof L==='undefined'){setTimeout(initMap,300);return}
+    map=L.map('map',{center:[8.46,-13.23],zoom:8,zoomControl:true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap',maxZoom:19}).addTo(map);
+    mapLayers=L.layerGroup().addTo(map);
+    setTimeout(function(){map.invalidateSize();renderMapTrails()},500);
+}
+initMap();
+
+// ============================================
+// TABS
+// ============================================
+function switchTab(tab,btn){
+    var bs=document.querySelectorAll('.nav-btn'),ps=document.querySelectorAll('.tab-panel');
+    for(var i=0;i<bs.length;i++)bs[i].classList.remove('active');
+    for(var i=0;i<ps.length;i++)ps[i].classList.remove('active');
+    if(btn)btn.classList.add('active');
+    document.getElementById('panel-'+tab).classList.add('active');
+    if(tab==='map'&&map)setTimeout(function(){map.invalidateSize();renderMapTrails()},100);
+    if(tab==='users')renderUserList();
+    if(tab==='dash')renderDashboard();
+}
+function switchTabDirect(tab){
+    var bs=document.querySelectorAll('.nav-btn');
+    for(var i=0;i<bs.length;i++)bs[i].classList.toggle('active',bs[i].dataset.tab===tab);
+    var ps=document.querySelectorAll('.tab-panel');
+    for(var i=0;i<ps.length;i++)ps[i].classList.remove('active');
+    document.getElementById('panel-'+tab).classList.add('active');
+    if(tab==='map'&&map)setTimeout(function(){map.invalidateSize();renderMapTrails()},100);
+}
+
+// ============================================
+// DASHBOARD
+// ============================================
+function renderDashboard(){
+    var codes=Object.keys(trackingData);
+    var totalPts=0,totalDist=0,totalSessions=0,maxDist=0;
+    var userData=codes.map(function(code){
+        var u=trackingData[code], pts=0, dist=0, sess=0, lastTs=null, areas=[];
+        u.sessions.forEach(function(s){
+            if(!s.points||!s.points.length)return;
+            sess++; pts+=s.points.length;
+            for(var i=1;i<s.points.length;i++) dist+=haversine(s.points[i-1].lat,s.points[i-1].lng,s.points[i].lat,s.points[i].lng);
+            var last=s.points[s.points.length-1];
+            if(!lastTs||last.ts>lastTs) lastTs=last.ts;
+            // Determine area from coordinates
+            var avgLat=s.points.reduce(function(a,p){return a+p.lat},0)/s.points.length;
+            var avgLng=s.points.reduce(function(a,p){return a+p.lng},0)/s.points.length;
+            var area=getArea(avgLat,avgLng);
+            if(areas.indexOf(area)===-1) areas.push(area);
+        });
+        totalPts+=pts; totalDist+=dist; totalSessions+=sess;
+        if(dist>maxDist) maxDist=dist;
+        return {code:code,name:u.name,pts:pts,dist:dist,sess:sess,lastTs:lastTs,areas:areas,isActive:activeUser&&activeUser.code===code};
+    }).filter(function(u){return u.pts>0}).sort(function(a,b){return b.dist-a.dist});
+
+    document.getElementById('sumUsers').textContent=userData.length;
+    document.getElementById('sumSessions').textContent=totalSessions;
+    document.getElementById('sumPoints').textContent=totalPts;
+    document.getElementById('sumDist').textContent=(totalDist/1000).toFixed(1);
+
+    var html='';
+    userData.forEach(function(u,idx){
+        var ini=u.name.split(' ').map(function(w){return w[0]}).join('').substring(0,2).toUpperCase();
+        var bg=TRAIL_COLORS[idx%TRAIL_COLORS.length];
+        var distStr=u.dist<1000?Math.round(u.dist)+' m':(u.dist/1000).toFixed(1)+' km';
+        var lastStr=u.lastTs?timeAgo(u.lastTs):'—';
+        var pct=maxDist>0?Math.round((u.dist/maxDist)*100):0;
+        var avgSpeed=0;
+        // Calc avg duration
+        var totDurMins=0;
+        trackingData[u.code].sessions.forEach(function(s){
+            if(!s.points||s.points.length<2)return;
+            var st=new Date(s.points[0].ts).getTime(), en=new Date(s.points[s.points.length-1].ts).getTime();
+            totDurMins+=(en-st)/60000;
+        });
+        var durStr=totDurMins>=60?Math.floor(totDurMins/60)+'h '+Math.round(totDurMins%60)+'m':Math.round(totDurMins)+'m';
+        if(totDurMins>0) avgSpeed=((u.dist/1000)/(totDurMins/60)).toFixed(1);
+
+        html+='<div class="user-move-card" onclick="viewOnMap(\''+u.code+'\')">';
+        html+='<div class="umc-top">';
+        html+='<div class="umc-avatar" style="background:'+bg+'">'+ini+'</div>';
+        html+='<div class="umc-info"><div class="umc-name">'+u.name+'</div><div class="umc-id">'+u.code+' &bull; '+u.areas.join(', ')+'</div></div>';
+        html+='<div class="umc-status '+(u.isActive?'active':'idle')+'">'+(u.isActive?'LIVE':'IDLE')+'</div>';
+        html+='</div>';
+        html+='<div class="umc-stats">';
+        html+='<div class="umc-stat"><div class="ms-val">'+u.sess+'</div><div class="ms-lbl">Sessions</div></div>';
+        html+='<div class="umc-stat"><div class="ms-val">'+distStr+'</div><div class="ms-lbl">Distance</div></div>';
+        html+='<div class="umc-stat"><div class="ms-val">'+durStr+'</div><div class="ms-lbl">Duration</div></div>';
+        html+='<div class="umc-stat"><div class="ms-val">'+avgSpeed+'</div><div class="ms-lbl">km/h Avg</div></div>';
+        html+='</div>';
+        html+='<div class="umc-trail"><div class="umc-trail-fill" style="width:'+pct+'%"></div></div>';
+        html+='</div>';
+    });
+
+    document.getElementById('dashUserCards').innerHTML=html||'<div class="empty-state"><p>No movement data yet.</p></div>';
+}
+
+function getArea(lat,lng){
+    if(lat>8.3&&lat<8.6&&lng>-13.4&&lng<-13.1) return 'Freetown';
+    if(lat>8.2&&lat<8.4&&lng>-13.2&&lng<-12.9) return 'Waterloo';
+    if(lat>7.85&&lat<8.05&&lng>-11.85&&lng<-11.6) return 'Bo';
+    if(lat>7.78&&lat<7.98&&lng>-11.3&&lng<-11.05) return 'Kenema';
+    if(lat>8.78&&lat<9.0&&lng>-12.15&&lng<-11.95) return 'Makeni';
+    if(lat>8.5&&lat<8.7&&lng>-12.85&&lng<-12.6) return 'Port Loko';
+    return 'Field';
+}
+
+function timeAgo(ts){
+    var diff=Math.floor((Date.now()-new Date(ts).getTime())/1000);
+    if(diff<60) return 'just now';
+    if(diff<3600) return Math.floor(diff/60)+'m ago';
+    if(diff<86400) return Math.floor(diff/3600)+'h ago';
+    return Math.floor(diff/86400)+'d ago';
+}
+
+function viewOnMap(code){
+    document.getElementById('mapUserSelect').value=code;
+    switchTabDirect('map');
+    setTimeout(renderMapTrails,200);
+}
+
+// ============================================
+// QR SCAN
+// ============================================
+function parseQR(text){
+    try{var o=JSON.parse(text);return{code:o.code||o.id||o.ID||text,name:o.name||o.Name||''}}
+    catch(e){if(text.indexOf('=')>-1||text.indexOf(':')>-1){var p={};text.split(/[,;\n&]/).forEach(function(s){var kv=s.split(/[=:]/);if(kv.length>=2)p[kv[0].trim().toLowerCase()]=kv.slice(1).join(':').trim()});return{code:p.code||p.id||text,name:p.name||''}}return{code:text.trim(),name:''}}
+}
+function startScanTrack(){
+    if(typeof Html5Qrcode==='undefined'){showNotif('Scanner loading...','info');setTimeout(startScanTrack,500);return}
+    document.getElementById('scanOverlayTrack').style.display='none';
+    document.getElementById('reader-track').style.display='block';
+    document.getElementById('stop-scan-track').style.display='block';
+    if(scanner)try{scanner.stop()}catch(e){}
+    scanner=new Html5Qrcode('reader-track');
+    scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:200,height:200},aspectRatio:1},function(d){
+        scanner.stop().then(function(){scanner=null;document.getElementById('reader-track').style.display='none';document.getElementById('stop-scan-track').style.display='none';document.getElementById('scanOverlayTrack').style.display='block';var u=parseQR(d);beginTracking(u.code,u.name)})
+    },function(){}).catch(function(){document.getElementById('scanOverlayTrack').style.display='block';document.getElementById('reader-track').style.display='none';document.getElementById('stop-scan-track').style.display='none';showNotif('Camera denied','error')})
+}
+function stopScanTrack(){if(scanner)scanner.stop().then(function(){scanner=null;document.getElementById('reader-track').style.display='none';document.getElementById('stop-scan-track').style.display='none';document.getElementById('scanOverlayTrack').style.display='block'})}
+function startManualTrack(){var n=document.getElementById('manualName').value.trim(),c=document.getElementById('manualCode').value.trim();if(!c){showNotif('Enter an ID code','error');return}beginTracking(c,n||c)}
+
+// ============================================
+// GPS TRACKING
+// ============================================
+function beginTracking(code,name){
+    if(!navigator.geolocation){showNotif('GPS not supported','error');return}
+    activeUser={code:code,name:name||code};sessionStart=Date.now();sessionPoints=0;sessionDistance=0;lastPoint=null;
+    if(!trackingData[code])trackingData[code]={name:name||code,sessions:[]};
+    if(name&&name!==code)trackingData[code].name=name;
+    trackingData[code].sessions.push({start:new Date().toISOString(),end:null,points:[]});
+    saveData();
+    watchId=navigator.geolocation.watchPosition(onGPS,onGPSErr,{enableHighAccuracy:HIGH_ACCURACY,timeout:15000,maximumAge:0});
+    liveTimer=setInterval(function(){navigator.geolocation.getCurrentPosition(onGPS,function(){},{enableHighAccuracy:HIGH_ACCURACY,timeout:10000,maximumAge:GPS_INTERVAL*500})},GPS_INTERVAL*1000);
+    updateActiveCard();
+    document.getElementById('startTrackSection').style.display='none';
+    document.getElementById('activeUserCard').classList.add('show');
+    setIndicator(true);showNotif('Tracking '+(name||code),'success');
+}
+function stopTracking(){
+    if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}
+    if(liveTimer){clearInterval(liveTimer);liveTimer=null}
+    if(activeUser&&trackingData[activeUser.code]){var s=trackingData[activeUser.code].sessions;if(s.length>0)s[s.length-1].end=new Date().toISOString();saveData()}
+    activeUser=null;lastPoint=null;
+    document.getElementById('activeUserCard').classList.remove('show');
+    document.getElementById('startTrackSection').style.display='';
+    setIndicator(false);showNotif('Tracking stopped','info');updateStoredCount();updateMapUserSelect();renderDashboard();
+}
+function onGPS(pos){
+    if(!activeUser)return;
+    var lat=pos.coords.latitude,lng=pos.coords.longitude,acc=pos.coords.accuracy;
+    if(lastPoint){var d=haversine(lastPoint.lat,lastPoint.lng,lat,lng);if(d<MIN_DISTANCE)return;sessionDistance+=d}
+    var pt={lat:r5(lat),lng:r5(lng),acc:Math.round(acc),ts:new Date().toISOString()};
+    lastPoint=pt;sessionPoints++;
+    var sessions=trackingData[activeUser.code].sessions;
+    sessions[sessions.length-1].points.push(pt);
+    saveData();updateLiveStats();updateStoredCount();
+    if(liveFollow&&map&&typeof L!=='undefined'){
+        if(!liveMarker)liveMarker=L.circleMarker([lat,lng],{radius:8,fillColor:'#ffc107',fillOpacity:1,color:'#0056a8',weight:3}).addTo(map);
+        else liveMarker.setLatLng([lat,lng]);map.panTo([lat,lng])
+    }
+}
+function onGPSErr(e){if(e.code===1){showNotif('GPS denied','error');stopTracking()}}
+function updateActiveCard(){if(!activeUser)return;var ini=activeUser.name.split(' ').map(function(w){return w[0]}).join('').substring(0,2).toUpperCase();document.getElementById('activeAvatar').textContent=ini;document.getElementById('activeName').textContent=activeUser.name;document.getElementById('activeId').textContent='ID: '+activeUser.code}
+function updateLiveStats(){
+    document.getElementById('livePoints').textContent=sessionPoints;
+    document.getElementById('liveDist').textContent=sessionDistance<1000?Math.round(sessionDistance)+' m':(sessionDistance/1000).toFixed(2)+' km';
+    var el=Math.floor((Date.now()-sessionStart)/1000),h=Math.floor(el/3600),m=Math.floor((el%3600)/60),s=el%60;
+    document.getElementById('liveTime').textContent=h>0?h+':'+pad(m)+':'+pad(s):m+':'+pad(s);
+}
+function setIndicator(on){document.getElementById('trackingIndicator').className='tracking-indicator '+(on?'active':'idle');document.getElementById('trackingLabel').textContent=on?'TRACKING':'IDLE'}
+
+// ============================================
+// MAP RENDERING
+// ============================================
+function renderMapTrails(){
+    if(!map||!mapLayers||typeof L==='undefined')return;
+    mapLayers.clearLayers();if(liveMarker){map.removeLayer(liveMarker);liveMarker=null}
+    var sel=document.getElementById('mapUserSelect').value;
+    var users=sel==='all'?Object.keys(trackingData):[sel];
+    var allBounds=[],totalPts=0,totalDist=0,minT=Infinity,maxT=0;
+    users.forEach(function(code,idx){
+        if(!trackingData[code])return;var user=trackingData[code],color=TRAIL_COLORS[idx%TRAIL_COLORS.length],uD=0;
+        user.sessions.forEach(function(session){
+            if(!session.points||!session.points.length)return;
+            var ll=session.points.map(function(p){return[p.lat,p.lng]});
+            totalPts+=session.points.length;
+            L.polyline(ll,{color:color,weight:4,opacity:0.85,lineJoin:'round'}).addTo(mapLayers);
+            var st=session.points[0],en=session.points[session.points.length-1];
+            L.circleMarker([st.lat,st.lng],{radius:7,fillColor:'#fff',fillOpacity:1,color:color,weight:3}).bindPopup('<div class="popup-content"><div class="name">'+user.name+'</div><div class="detail">Start: '+new Date(st.ts).toLocaleString()+'</div></div>').addTo(mapLayers);
+            L.circleMarker([en.lat,en.lng],{radius:7,fillColor:color,fillOpacity:1,color:'#fff',weight:3}).bindPopup('<div class="popup-content"><div class="name">'+user.name+'</div><div class="detail">Latest: '+new Date(en.ts).toLocaleString()+'<br>Points: '+session.points.length+'</div></div>').addTo(mapLayers);
+            for(var i=1;i<session.points.length;i++)uD+=haversine(session.points[i-1].lat,session.points[i-1].lng,session.points[i].lat,session.points[i].lng);
+            session.points.forEach(function(p){var t=new Date(p.ts).getTime();if(t<minT)minT=t;if(t>maxT)maxT=t});
+            ll.forEach(function(l){allBounds.push(l)})
+        });totalDist+=uD
+    });
+    if(allBounds.length>1)map.fitBounds(allBounds,{padding:[50,50]});
+    else if(allBounds.length===1)map.setView(allBounds[0],16);
+    document.getElementById('mapPoints').textContent=totalPts;
+    document.getElementById('mapDistance').textContent=totalDist<1000?Math.round(totalDist)+' m':(totalDist/1000).toFixed(1)+' km';
+    if(maxT>minT){var dur=Math.floor((maxT-minT)/1000);document.getElementById('mapDuration').textContent=Math.floor(dur/3600)+'h '+Math.floor((dur%3600)/60)+'m'}
+    else document.getElementById('mapDuration').textContent='0h 0m';
+    document.getElementById('mapUsers').textContent=users.filter(function(c){return trackingData[c]&&trackingData[c].sessions.some(function(s){return s.points&&s.points.length>0})}).length;
+}
+function toggleLiveFollow(){liveFollow=!liveFollow;document.getElementById('liveBtn').classList.toggle('active',liveFollow);if(liveFollow&&activeUser&&lastPoint&&map)map.panTo([lastPoint.lat,lastPoint.lng])}
+function updateMapUserSelect(){
+    var sel=document.getElementById('mapUserSelect'),cur=sel.value;
+    sel.innerHTML='<option value="all">All Users</option>';
+    Object.keys(trackingData).forEach(function(code){var o=document.createElement('option');o.value=code;o.textContent=trackingData[code].name+' ('+code+')';sel.appendChild(o)});
+    sel.value=cur||'all';
+}
+
+// ============================================
+// USERS LIST
+// ============================================
+function renderUserList(){
+    var search=(document.getElementById('userSearch').value||'').toLowerCase();
+    var users=Object.keys(trackingData).map(function(code){
+        var u=trackingData[code],tp=0,td=0,ts=0;
+        u.sessions.forEach(function(s){if(!s.points||!s.points.length)return;ts++;tp+=s.points.length;for(var i=1;i<s.points.length;i++)td+=haversine(s.points[i-1].lat,s.points[i-1].lng,s.points[i].lat,s.points[i].lng)});
+        return{code:code,name:u.name,totalPoints:tp,totalDist:td,totalSessions:ts}
+    }).filter(function(u){return u.totalPoints>0}).filter(function(u){return u.name.toLowerCase().indexOf(search)>-1||u.code.toLowerCase().indexOf(search)>-1}).sort(function(a,b){return b.totalPoints-a.totalPoints});
+    document.getElementById('userCountBadge').textContent=users.length+' USERS';
+    var list=document.getElementById('userItems');
+    if(!users.length){list.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg><p>'+(search?'No match':'No data yet')+'</p></div>';return}
+    list.innerHTML=users.map(function(u,i){
+        var ini=u.name.split(' ').map(function(w){return w[0]}).join('').substring(0,2).toUpperCase();
+        var bg=TRAIL_COLORS[i%TRAIL_COLORS.length];
+        var ds=u.totalDist<1000?Math.round(u.totalDist)+' m':(u.totalDist/1000).toFixed(1)+' km';
+        return'<div class="user-item" onclick="viewOnMap(\''+u.code+'\')"><div class="user-avatar" style="background:'+bg+'">'+ini+'</div><div class="user-info"><div class="user-name">'+u.name+'</div><div class="user-meta"><span>'+u.code+'</span><span>'+u.totalSessions+' sessions</span><span>'+ds+'</span></div></div><div class="user-right"><div class="user-points">'+u.totalPoints+'</div><div class="user-points-label">POINTS</div></div></div>'
+    }).join('');
+}
+
+// ============================================
+// GOOGLE SHEETS SYNC
+// ============================================
+function syncToSheets(){
+    if(!SCRIPT_URL){showNotif('Set SCRIPT_URL in config first','error');return}
+    var btn=document.getElementById('syncBtn'),icon=document.getElementById('syncIcon');
+    btn.disabled=true;icon.classList.add('sync-spin');btn.querySelector('span')||btn.childNodes[1];
+    var records=[];
+    Object.keys(trackingData).forEach(function(code){
+        var u=trackingData[code];
+        u.sessions.forEach(function(s,si){(s.points||[]).forEach(function(p){
+            records.push({action:'GPS_POINT',code:code,name:u.name,session:si+1,sessionStart:s.start||'',sessionEnd:s.end||'',timestamp:p.ts,latitude:p.lat,longitude:p.lng,accuracy:p.acc||''})
+        })})
+    });
+    var batches=[];
+    for(var i=0;i<records.length;i+=50) batches.push(records.slice(i,i+50));
+    var idx=0;
+    function next(){
+        if(idx>=batches.length){
+            showNotif('Synced '+records.length+' points!','success');
+            btn.disabled=false;icon.classList.remove('sync-spin');
+            document.getElementById('dashSyncStatus').textContent='SYNCED ✓';
+            document.getElementById('dashSyncStatus').style.background='rgba(40,167,69,0.2)';
+            document.getElementById('dashSyncStatus').style.color='#86efac';
+            localStorage.setItem('mt_lastSync',new Date().toISOString());return
+        }
+        fetch(SCRIPT_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:batches[idx]})})
+            .then(function(){idx++;next()})
+            .catch(function(){showNotif('Sync error','error');btn.disabled=false;icon.classList.remove('sync-spin')})
+    }
+    next();
+}
+
+// ============================================
+// EXPORT & CLEAR
+// ============================================
+function exportData(){
+    var csv='User Code,User Name,Session,Timestamp,Latitude,Longitude,Accuracy\n';
+    Object.keys(trackingData).forEach(function(code){var u=trackingData[code];u.sessions.forEach(function(s,si){(s.points||[]).forEach(function(p){csv+='"'+code+'","'+u.name+'",'+(si+1)+',"'+p.ts+'",'+p.lat+','+p.lng+','+(p.acc||'')+'\n'})})});
+    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    a.download='movement-tracker-'+fmtD(new Date())+'.csv';a.click();showNotif('Exported!','success');
+}
+function clearAllData(){
+    if(confirm('Clear ALL tracking data?')){
+        if(activeUser)stopTracking();trackingData={};saveData();updateMapUserSelect();
+        if(map)renderMapTrails();renderUserList();updateStoredCount();renderDashboard();showNotif('All data cleared','info')
+    }
+}
+
+// ============================================
+// HELPERS
+// ============================================
+function haversine(lat1,lon1,lat2,lon2){var R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))}
+function saveData(){try{localStorage.setItem('mt_data',JSON.stringify(trackingData))}catch(e){showNotif('Storage full!','error')}}
+function updateStoredCount(){var t=0;Object.values(trackingData).forEach(function(u){u.sessions.forEach(function(s){t+=(s.points?s.points.length:0)})});document.getElementById('settingTotalPts').textContent=t}
+function showNotif(msg,type){var el=document.getElementById('notif');el.textContent=msg;el.className='notif show '+(type||'info');setTimeout(function(){el.className='notif'},2500)}
+
+// ============================================
+// BOOT
+// ============================================
+updateMapUserSelect();updateStoredCount();renderDashboard();
+setInterval(function(){if(activeUser)updateLiveStats()},1000);
+window.addEventListener('beforeunload',function(e){if(activeUser){e.preventDefault();e.returnValue='GPS tracking is active.'}});
+// Check last sync
+var ls=localStorage.getItem('mt_lastSync');
+if(ls){document.getElementById('dashSyncStatus').textContent='SYNCED '+timeAgo(ls);document.getElementById('dashSyncStatus').style.background='rgba(40,167,69,0.2)';document.getElementById('dashSyncStatus').style.color='#86efac'}
+    </script>
+</body>
+</html>
